@@ -1,0 +1,159 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.9.0
+    container_name: warehouse-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.9.0
+    container_name: warehouse-kafka
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://127.0.0.1:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    ports:
+      - "29092:29092"
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.9.0
+    container_name: warehouse-schema-registry
+    depends_on:
+      - kafka
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:9092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    ports:
+      - "8081:8081"
+
+  cassandra-1:
+    image: cassandra:5.0
+    container_name: cassandra-1
+    environment:
+      CASSANDRA_CLUSTER_NAME: warehouse-cluster
+      CASSANDRA_DC: dc1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+      CASSANDRA_SEEDS: cassandra-1,cassandra-2
+      CASSANDRA_NUM_TOKENS: 16
+      MAX_HEAP_SIZE: 768M
+      HEAP_NEWSIZE: 256M
+    ports:
+      - "9042:9042"
+    volumes:
+      - cassandra-1-data:/var/lib/cassandra
+
+  cassandra-2:
+    image: cassandra:5.0
+    container_name: cassandra-2
+    depends_on:
+      - cassandra-1
+    environment:
+      CASSANDRA_CLUSTER_NAME: warehouse-cluster
+      CASSANDRA_DC: dc1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+      CASSANDRA_SEEDS: cassandra-1,cassandra-2
+      CASSANDRA_NUM_TOKENS: 16
+      MAX_HEAP_SIZE: 768M
+      HEAP_NEWSIZE: 256M
+    volumes:
+      - cassandra-2-data:/var/lib/cassandra
+
+  cassandra-3:
+    image: cassandra:5.0
+    container_name: cassandra-3
+    depends_on:
+      - cassandra-1
+    environment:
+      CASSANDRA_CLUSTER_NAME: warehouse-cluster
+      CASSANDRA_DC: dc1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+      CASSANDRA_SEEDS: cassandra-1,cassandra-2
+      CASSANDRA_NUM_TOKENS: 16
+      MAX_HEAP_SIZE: 768M
+      HEAP_NEWSIZE: 256M
+    volumes:
+      - cassandra-3-data:/var/lib/cassandra
+
+  producer:
+    build: .
+    container_name: warehouse-producer
+    depends_on:
+      - kafka
+      - schema-registry
+    command: ["python", "-m", "warehouse.producer_app"]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      WAREHOUSE_EVENTS_TOPIC: warehouse-events
+      WAREHOUSE_DLQ_TOPIC: warehouse-events-dlq
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+    ports:
+      - "8000:8000"
+
+  consumer:
+    build: .
+    container_name: warehouse-consumer
+    depends_on:
+      - kafka
+      - schema-registry
+      - cassandra-1
+      - cassandra-2
+      - cassandra-3
+    command: ["python", "-m", "warehouse.consumer_app"]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CASSANDRA_CONTACT_POINTS: cassandra-1,cassandra-2,cassandra-3
+      CASSANDRA_KEYSPACE: warehouse
+      CASSANDRA_LOCAL_DATACENTER: dc1
+      WAREHOUSE_EVENTS_TOPIC: warehouse-events
+      WAREHOUSE_DLQ_TOPIC: warehouse-events-dlq
+      WAREHOUSE_CONSUMER_GROUP: warehouse-state-consumer
+      API_HOST: 0.0.0.0
+      API_PORT: 8001
+    ports:
+      - "8001:8001"
+
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    container_name: warehouse-prometheus
+    depends_on:
+      - consumer
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: warehouse-grafana
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+
+volumes:
+  cassandra-1-data:
+  cassandra-2-data:
+  cassandra-3-data:

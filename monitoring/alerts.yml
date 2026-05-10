@@ -1,0 +1,11 @@
+groups:
+  - name: warehouse-consumer
+    rules:
+      - alert: WarehouseConsumerLagHigh
+        expr: consumer_lag > 5
+        for: 15s
+        labels:
+          severity: warning
+        annotations:
+          summary: Warehouse consumer lag is high
+          description: Consumer partition lag is above 5 messages for more than 15 seconds.

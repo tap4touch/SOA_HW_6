@@ -1,0 +1,33 @@
+[project]
+name = "hw6"
+version = "0.1.0"
+description = "Smart Warehouse event-driven state management with Kafka and Cassandra"
+readme = "description.md"
+requires-python = ">=3.14"
+dependencies = [
+    "black>=26.3.1",
+    "cassandra-driver>=3.30.0",
+    "confluent-kafka[avro,schemaregistry]>=2.14.0",
+    "fastapi>=0.136.1",
+    "httpx>=0.28.1",
+    "mypy>=2.0.0",
+    "prometheus-client>=0.25.0",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.14.1",
+    "ruff>=0.15.12",
+    "uvicorn>=0.46.0",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py314"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.mypy]
+python_version = "3.14"
+ignore_missing_imports = true
+check_untyped_defs = true
+mypy_path = ["."]
